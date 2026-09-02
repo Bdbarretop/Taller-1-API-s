@@ -83,6 +83,12 @@ async def exportar():
     return {"siniestros": SINIESTROS.todos()}
 
 
+@app.get("/health")
+def health():
+    """Sonda de vida (liveness). Responde 200 sin consultar dependencias."""
+    return {"status": "ok"}
+
+
 # --- Endpoints de perfil de carga -----------------------------------------
 
 @app.get("/ping")
@@ -108,8 +114,3 @@ async def calculo_pesado():
     for i in range(3_000_000):
         total += (i % 7) ** 0.5
     return {"total": round(total, 2)}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

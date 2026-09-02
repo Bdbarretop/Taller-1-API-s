@@ -15,11 +15,14 @@ El modelo entrenado (`modelo.pkl`) viene en el repositorio.
 ## Puesta en marcha
 
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
-El mismo comando sirve en el servidor de producción. `--reload` es cómodo
-porque recoge los cambios sin reiniciar a mano.
+`--workers 4` pone cuatro procesos servidores en paralelo. **No usar
+`--reload`** en producción: el watcher del sistema de archivos es
+incompatible con `--workers` y no aporta valor cuando el código no cambia.
+Si se necesita cargar variables de entorno desde un archivo local,
+añadir `--env-file .env`.
 
 ## Endpoints
 
@@ -29,6 +32,7 @@ porque recoge los cambios sin reiniciar a mano.
 | GET | `/historial` | Evaluaciones hechas |
 | GET | `/siniestros/{id}` | Consulta un siniestro |
 | GET | `/exportar` | Exporta el histórico para el equipo de actuaría |
+| GET | `/health` | Sonda de vida del servicio (liveness) |
 | GET | `/ping` | Comprobación rápida |
 | GET | `/consulta-archivo` | Cuenta los registros del archivo de siniestros |
 | GET | `/servicio-externo` | Consulta la tarifa de referencia del reasegurador |
