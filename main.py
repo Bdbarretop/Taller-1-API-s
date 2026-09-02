@@ -9,9 +9,18 @@ from pathlib import Path
 from fastapi import FastAPI, Response
 
 import config
-from dominio import EvaluadorRiesgo, buscar_siniestro, cargar_siniestros
+from dominio import EvaluadorRiesgo, RepositorioHistorial, RepositorioSiniestros
 
 BASE = Path(__file__).parent
+
+# Cargamos el modelo al importar (arranque del servicio), no dentro del handler.
+# Patrón enseñado en M5 · 3 «El servidor web y WSGI». Cubre restricción B6.
+with open(BASE / config.RUTA_MODELO, "rb") as fh:
+    MODELO = pickle.load(fh)
+
+HISTORIAL = RepositorioHistorial()
+SINIESTROS = RepositorioSiniestros(BASE / config.RUTA_DATOS)
+
 app = FastAPI(title="Riesgo API", version="0.1.0")
 
 
@@ -25,11 +34,8 @@ async def score(payload: dict):
     if payload.get("antiguedad", 0) < 0:
         return {"error": "la antigüedad no puede ser negativa"}
 
-    with open(BASE / config.RUTA_MODELO, "rb") as fh:
-        modelo = pickle.load(fh)
-
-    evaluador = EvaluadorRiesgo(payload["poliza"])
-    puntaje = evaluador.puntuar(modelo, payload)
+    evaluador = EvaluadorRiesgo(payload["poliza"], modelo=MODELO, historial=HISTORIAL)
+    puntaje = evaluador.puntuar(payload)
     evaluador.anotar(puntaje)
 
     return {
@@ -41,12 +47,12 @@ async def score(payload: dict):
 
 @app.get("/historial")
 async def historial():
-    return {"evaluaciones": EvaluadorRiesgo.historial}
+    return {"evaluaciones": HISTORIAL.todo()}
 
 
 @app.get("/siniestros/{id_siniestro}")
 async def siniestro(id_siniestro: int):
-    fila = buscar_siniestro(id_siniestro)
+    fila = SINIESTROS.buscar(id_siniestro)
     if fila is None:
         return {"error": f"no existe el siniestro {id_siniestro}"}
     return fila
@@ -54,7 +60,7 @@ async def siniestro(id_siniestro: int):
 
 @app.get("/exportar")
 async def exportar():
-    datos = cargar_siniestros()
+    datos = SINIESTROS.todos()
     return Response(pickle.dumps(datos), media_type="application/octet-stream")
 
 
