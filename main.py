@@ -2,8 +2,10 @@
 riesgo-api-v0 — Servicio de puntuación de siniestros.
 Aseguradora Santo Tomás · prototipo interno.
 """
+import asyncio
+import multiprocessing
 import pickle
-import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -21,6 +23,24 @@ with open(BASE / config.RUTA_MODELO, "rb") as fh:
 
 HISTORIAL = RepositorioHistorial()
 SINIESTROS = RepositorioSiniestros(BASE / config.RUTA_DATOS)
+
+
+def _calculo_pesado_cpu() -> float:
+    """Cómputo CPU-bound aislado; vive a nivel de módulo para que
+    ProcessPoolExecutor pueda serializarla (Windows usa spawn)."""
+    total = 0.0
+    for i in range(3_000_000):
+        total += (i % 7) ** 0.5
+    return round(total, 2)
+
+
+# ProcessPoolExecutor para tareas CPU-bound (M5 · 6.4.5 «Advertencia: async
+# no es magia para todo»). Se crea solo en el proceso principal; los hijos
+# spawneados re-importan este módulo y saltan la creación para evitar
+# recursión.
+CPU_EXECUTOR: ProcessPoolExecutor | None = None
+if multiprocessing.current_process().name == "MainProcess":
+    CPU_EXECUTOR = ProcessPoolExecutor(max_workers=4)
 
 app = FastAPI(title="Riesgo API", version="0.1.0")
 
@@ -97,20 +117,25 @@ async def ping():
 
 
 @app.get("/consulta-archivo")
-async def consulta_archivo():
+def consulta_archivo():
+    # IO-bound con archivo pequeño (~50 KB). `def` deja que FastAPI lo ejecute
+    # en el thread pool sin bloquear el event loop (M5 · 6).
     contenido = (BASE / config.RUTA_DATOS).read_text(encoding="utf-8")
     return {"lineas": len(contenido.splitlines())}
 
 
 @app.get("/servicio-externo")
 async def servicio_externo():
-    time.sleep(0.3)
+    # IO-bound de red. `await asyncio.sleep` cede control al event loop;
+    # 20 corrutinas concurrentes esperan sus 0.3 s en paralelo (M5 · 6).
+    await asyncio.sleep(0.3)
     return {"tarifa_referencia": 1.18}
 
 
 @app.get("/calculo-pesado")
 async def calculo_pesado():
-    total = 0.0
-    for i in range(3_000_000):
-        total += (i % 7) ** 0.5
-    return {"total": round(total, 2)}
+    # CPU-bound. Se delega al ProcessPoolExecutor: proceso separado, fuera
+    # del GIL, paralelismo real (M5 · 6.4.5 «async no es magia para todo»).
+    loop = asyncio.get_running_loop()
+    total = await loop.run_in_executor(CPU_EXECUTOR, _calculo_pesado_cpu)
+    return {"total": total}

@@ -51,8 +51,16 @@
 
 ## `/ping`
 
+**trivial · `async def`.** El handler solo retorna un dict literal, sin I/O ni cómputo real. Con concurrencia 1 el p50 es 2.2 ms — ida y vuelta HTTP más el overhead de FastAPI/uvicorn. Con concurrencia 20 el p50 apenas sube a 4.0 ms; el p95 de 2076 ms **no** es tiempo del servidor sino la cola del cliente: `medir.py` usa un `ThreadPoolExecutor` que lanza las 50 peticiones en tandas del tamaño de la concurrencia, y las últimas peticiones esperan en cola hasta que se libera un worker. Dejar el handler como `async def` o cambiarlo a `def` mide igual porque no hay operación bloqueante que reclame el thread pool.
+
 ## `/consulta-archivo`
+
+**IO-bound · `def`.** Lee un CSV de ~50 KB con `read_text()`. Por la regla del material («I/O va con async»), tocaría `async def` con `aiofiles`; sin embargo la medición con `async def` del semilla (p50 4.1 ms con c=20) y con `def` (p50 3.7 ms con c=20) es indistinguible. Esta es una de las dos trampas que avisa el PDF: el archivo es tan pequeño que la latencia de I/O queda por debajo del ruido del ida y vuelta HTTP, así que aplicar o incumplir la regla da lo mismo. Nos quedamos con `def` porque no requiere `aiofiles` y deja que FastAPI mueva el handler al thread pool sin bloquear el event loop.
 
 ## `/servicio-externo`
 
+**IO-bound · `async def`.** Simula una llamada de red con un sleep de 0.3 s. Con el declarador del semilla (`async def` + `time.sleep`) la medición con concurrencia 20 fue **catastrófica: p50 3628 ms, p95 14382 ms** — porque `time.sleep` es bloqueante y `async def` lo mete dentro del event loop, así que las 20 peticiones se serializaron. Cambiando a `await asyncio.sleep(0.3)` el event loop pudo despachar las 20 corrutinas en paralelo: p50 pasó a **333 ms** con c=20 (≈10× mejor) y el total del tramo de 15 s a 3 s. Es la trampa 1 del PDF: seguir la regla «I/O va con async» sin quitar la operación bloqueante da peor rendimiento; corregirla en serio requiere `await` sobre una primitiva async.
+
 ## `/calculo-pesado`
+
+**CPU-bound · `async def + executor`.** Loop de 3 millones de raíces cuadradas. Con `async def` del semilla, c=20 dio p50 4938 ms — el cálculo bloquea el event loop y las 20 peticiones corren en serie. Intentamos pasarlo a `def` (que va al thread pool por defecto de FastAPI) esperando mejora, pero medimos **peor: p50 9778 ms**. Motivo: el GIL de Python serializa igual las 20 tareas CPU-bound, y añade overhead de context switching entre hilos. Aplicamos entonces la corrección canónica del material (M5 · 6.4.5 «async no es magia para todo»): `async def` en el handler + `run_in_executor` sobre un `ProcessPoolExecutor(max_workers=4)` a nivel de módulo. Con procesos separados fuera del GIL, c=20 bajó a p50 **2569 ms** — ~2× mejor que el semilla y ~4× mejor que el intento con `def`.
