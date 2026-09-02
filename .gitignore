@@ -1,1 +1,29 @@
-*.pyc
+# Bytecode y cachés
+__pycache__/
+*.py[cod]
+*.pyo
+*$py.class
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Herramientas de test
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Empaquetado
+*.egg-info/
+build/
+dist/
+
+# Entorno / secretos
+.env
+.env.*
+!.env.example
+
+# IDEs
+.idea/
+.vscode/
