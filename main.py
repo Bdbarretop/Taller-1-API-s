@@ -6,7 +6,8 @@ import pickle
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field, field_validator
 
 import config
 from dominio import EvaluadorRiesgo, RepositorioHistorial, RepositorioSiniestros
@@ -24,25 +25,44 @@ SINIESTROS = RepositorioSiniestros(BASE / config.RUTA_DATOS)
 app = FastAPI(title="Riesgo API", version="0.1.0")
 
 
-@app.post("/score")
-async def score(payload: dict):
-    if "poliza" not in payload:
-        return {"error": "falta el campo poliza"}
+# --- Modelos de request/response (M4 · Pydantic, cubre B5) ----------------
 
-    assert payload["monto"] > 0, "el monto debe ser positivo"
+class SolicitudScore(BaseModel):
+    """Datos que llegan al endpoint /score."""
 
-    if payload.get("antiguedad", 0) < 0:
-        return {"error": "la antigüedad no puede ser negativa"}
+    poliza: str = Field(min_length=1, max_length=32)
+    monto: float = Field(gt=0)
+    antiguedad: int = Field(ge=0, le=60)
+    siniestros_previos: int = Field(ge=0)
 
-    evaluador = EvaluadorRiesgo(payload["poliza"], modelo=MODELO, historial=HISTORIAL)
-    puntaje = evaluador.puntuar(payload)
+    @field_validator("poliza")
+    @classmethod
+    def poliza_no_vacia(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("la póliza no puede ser solo espacios")
+        return v
+
+
+class RespuestaScore(BaseModel):
+    """Salida del endpoint /score. Validada también en la salida."""
+
+    poliza: str
+    puntaje: float = Field(ge=0.0, le=1.0)
+    alto_riesgo: bool
+
+
+# --- Endpoints de negocio -------------------------------------------------
+
+@app.post("/score", response_model=RespuestaScore)
+async def score(payload: SolicitudScore) -> RespuestaScore:
+    evaluador = EvaluadorRiesgo(payload.poliza, modelo=MODELO, historial=HISTORIAL)
+    puntaje = evaluador.puntuar(payload.model_dump())
     evaluador.anotar(puntaje)
-
-    return {
-        "poliza": payload["poliza"],
-        "puntaje": puntaje,
-        "alto_riesgo": evaluador.es_alto_riesgo(puntaje),
-    }
+    return RespuestaScore(
+        poliza=payload.poliza,
+        puntaje=puntaje,
+        alto_riesgo=evaluador.es_alto_riesgo(puntaje),
+    )
 
 
 @app.get("/historial")
@@ -54,14 +74,13 @@ async def historial():
 async def siniestro(id_siniestro: int):
     fila = SINIESTROS.buscar(id_siniestro)
     if fila is None:
-        return {"error": f"no existe el siniestro {id_siniestro}"}
+        raise HTTPException(status_code=404, detail=f"no existe el siniestro {id_siniestro}")
     return fila
 
 
 @app.get("/exportar")
 async def exportar():
-    datos = SINIESTROS.todos()
-    return Response(pickle.dumps(datos), media_type="application/octet-stream")
+    return {"siniestros": SINIESTROS.todos()}
 
 
 # --- Endpoints de perfil de carga -----------------------------------------
