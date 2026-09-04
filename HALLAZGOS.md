@@ -1,6 +1,6 @@
 # Hallazgos — Parte A
 
-**Grupo:** <número> · **Integrantes:** Brayan David Barreto, Edwing Navarrete
+**Grupo:** DA8B · **Integrantes:** Brayan David Barreto, Edwing Navarrete
 
 > No borren la fila de ejemplo hasta haber comprobado que su tabla se parsea.
 > El formato es rígido: siete columnas, en este orden. Una tabla torcida se

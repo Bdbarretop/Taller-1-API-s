@@ -1,6 +1,6 @@
 # Dictamen sobre `ia_propuesta.py` — Parte D
 
-**Grupo:** <número> · **Integrantes:** Brayan David Barreto, Edwing Navarrete
+**Grupo:** DA8B · **Integrantes:** Brayan David Barreto, Edwing Navarrete
 
 > Tres defectos. Las cuatro secciones de cada uno son obligatorias y se parsean.
 > El peso está en **«Cómo lo comprobamos»**: afirmar que algo está mal no vale;
